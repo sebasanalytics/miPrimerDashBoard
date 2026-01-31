@@ -1,17 +1,20 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.express as px
 
-st.set_page_config(page_title="EDA Energías Renovables", layout="wide")
+st.set_page_config(
+    page_title="EDA Energías Renovables",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.title("📊 Análisis Exploratorio de Datos - Energías Renovables")
+st.title("⚡ EDA Interactivo – Energías Renovables")
 
 # ======================
 # Carga del archivo
 # ======================
 uploaded_file = st.file_uploader(
-    "Sube el archivo CSV a analizar",
+    "📂 Sube un archivo CSV",
     type=["csv"]
 )
 
@@ -21,96 +24,131 @@ if uploaded_file is not None:
     st.success("Archivo cargado correctamente ✅")
 
     # ======================
-    # Vista general
+    # KPIs
     # ======================
-    st.header("📌 Vista general del dataset")
+    st.subheader("📌 Métricas generales")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Filas", df.shape[0])
-    col2.metric("Columnas", df.shape[1])
-    col3.metric("Valores nulos", df.isnull().sum().sum())
+    col1, col2, col3, col4 = st.columns(4)
 
-    st.subheader("Primeras filas")
-    st.dataframe(df.head())
+    col1.metric("Proyectos", df.shape[0])
+    col2.metric("Variables", df.shape[1])
+    col3.metric("Nulos", int(df.isnull().sum().sum()))
 
-    # ======================
-    # Tipos de datos
-    # ======================
-    st.subheader("Tipos de datos")
-    st.dataframe(df.dtypes.astype(str))
+    if "Capacidad_Instalada_MW" in df.columns:
+        col4.metric(
+            "Capacidad total (MW)",
+            round(df["Capacidad_Instalada_MW"].sum(), 2)
+        )
 
     # ======================
-    # Estadísticas descriptivas
+    # Vista previa
     # ======================
-    st.subheader("Estadísticas descriptivas (numéricas)")
-    st.dataframe(df.describe())
-
-    # ======================
-    # Variables categóricas
-    # ======================
-    st.header("📊 Análisis de variables categóricas")
-
-    categorical_cols = df.select_dtypes(include="object").columns
-
-    for col in categorical_cols:
-        st.subheader(f"{col}")
-        fig, ax = plt.subplots()
-        df[col].value_counts().plot(kind="bar", ax=ax)
-        ax.set_ylabel("Frecuencia")
-        st.pyplot(fig)
+    with st.expander("👀 Vista previa del dataset"):
+        st.dataframe(df.head(20))
 
     # ======================
-    # Variables numéricas
+    # Filtros dinámicos
     # ======================
-    st.header("📈 Análisis de variables numéricas")
+    st.sidebar.header("🎛️ Filtros")
 
-    numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns
+    filtered_df = df.copy()
 
-    for col in numeric_cols:
-        st.subheader(col)
-        fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-
-        sns.histplot(df[col], kde=True, ax=ax[0])
-        ax[0].set_title("Distribución")
-
-        sns.boxplot(x=df[col], ax=ax[1])
-        ax[1].set_title("Boxplot")
-
-        st.pyplot(fig)
+    for col in df.select_dtypes(include="object").columns:
+        selected = st.sidebar.multiselect(
+            f"Filtrar por {col}",
+            options=df[col].unique(),
+            default=df[col].unique()
+        )
+        filtered_df = filtered_df[filtered_df[col].isin(selected)]
 
     # ======================
-    # Correlaciones
+    # Distribución numérica
     # ======================
-    st.header("🔗 Matriz de correlación")
+    st.header("📊 Distribución de variables numéricas")
 
-    fig, ax = plt.subplots(figsize=(8, 6))
-    sns.heatmap(
-        df[numeric_cols].corr(),
-        annot=True,
-        cmap="coolwarm",
-        ax=ax
+    numeric_cols = filtered_df.select_dtypes(include=["int64", "float64"]).columns
+
+    selected_num_col = st.selectbox(
+        "Selecciona una variable numérica",
+        numeric_cols
     )
-    st.pyplot(fig)
+
+    fig = px.histogram(
+        filtered_df,
+        x=selected_num_col,
+        nbins=30,
+        marginal="box",
+        title=f"Distribución de {selected_num_col}",
+        template="plotly_dark"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ======================
+    # Comparaciones categóricas
+    # ======================
+    st.header("🏷️ Comparaciones por categoría")
+
+    if len(numeric_cols) > 0:
+        cat_col = st.selectbox(
+            "Selecciona una variable categórica",
+            df.select_dtypes(include="object").columns
+        )
+
+        fig = px.box(
+            filtered_df,
+            x=cat_col,
+            y=selected_num_col,
+            color=cat_col,
+            title=f"{selected_num_col} por {cat_col}",
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ======================
+    # Correlación
+    # ======================
+    st.header("🔗 Correlación entre variables")
+
+    corr = filtered_df[numeric_cols].corr()
+
+    fig = px.imshow(
+        corr,
+        text_auto=True,
+        aspect="auto",
+        title="Matriz de correlación",
+        color_continuous_scale="RdBu_r",
+        template="plotly_dark"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
     # ======================
     # Análisis temporal
     # ======================
-    if "Fecha_Entrada_Operacion" in df.columns:
-        st.header("⏳ Análisis temporal")
+    if "Fecha_Entrada_Operacion" in filtered_df.columns:
+        st.header("⏳ Evolución temporal")
 
-        df["Fecha_Entrada_Operacion"] = pd.to_datetime(
-            df["Fecha_Entrada_Operacion"],
+        filtered_df["Fecha_Entrada_Operacion"] = pd.to_datetime(
+            filtered_df["Fecha_Entrada_Operacion"],
             errors="coerce"
         )
-        df["Año"] = df["Fecha_Entrada_Operacion"].dt.year
+        filtered_df["Año"] = filtered_df["Fecha_Entrada_Operacion"].dt.year
 
-        proyectos_por_año = df.groupby("Año").size()
+        time_series = (
+            filtered_df
+            .groupby("Año")["Capacidad_Instalada_MW"]
+            .sum()
+            .reset_index()
+        )
 
-        fig, ax = plt.subplots()
-        proyectos_por_año.plot(ax=ax)
-        ax.set_ylabel("Número de proyectos")
-        ax.set_title("Proyectos por año")
-        st.pyplot(fig)
+        fig = px.line(
+            time_series,
+            x="Año",
+            y="Capacidad_Instalada_MW",
+            markers=True,
+            title="Capacidad instalada a lo largo del tiempo",
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 else:
     st.info("👆 Sube un archivo CSV para comenzar el análisis")
